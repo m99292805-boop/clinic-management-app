@@ -1,0 +1,22 @@
+{
+  "appId": "com.clinicmanager.app",
+  "appName": "نظام إدارة العيادات",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1800,
+      "backgroundColor": "#013A3F",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false
+    }
+  },
+  "backgroundColor": "#F7F3E9",
+  "android": {
+    "allowMixedContent": false,
+    "loggingBehavior": "none"
+  }
+}
