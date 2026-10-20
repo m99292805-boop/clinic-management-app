@@ -75,7 +75,6 @@ jobs:
           cd "$PROJECT_DIR"
           [ -d "$ANDROID_DIR" ] || npx cap add android
           npx cap sync android
-          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError" >> "$ANDROID_DIR/gradle.properties"
 
       - name: 🔐 chmod gradlew
         run: chmod +x "$ANDROID_DIR/gradlew"
@@ -84,7 +83,7 @@ jobs:
         working-directory: ${{ env.ANDROID_DIR }}
         run: ./gradlew bundleRelease --no-daemon -x lint
 
-      - name: ✍️ Sign AAB
+      - name: ✍️ Sign AAB (Direct)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -93,11 +92,14 @@ jobs:
         run: |
           set -euo pipefail
           AAB=$(find "$ANDROID_DIR" -name "*.aab" -path "*release*" | head -n1)
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          # فك تشفير الكي ستور بطريقة آمنة ومباشرة
+          python3 -c "import os, base64; open('$RUNNER_TEMP/release.jks', 'wb').write(base64.b64decode(os.environ['KEYSTORE_BASE64'].strip()))"
+          
           jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
             -keystore "$RUNNER_TEMP/release.jks" \
             -storepass "$KEYSTORE_PASSWORD" -keypass "${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" \
             "$AAB" "${KEY_ALIAS:-clinicapp}"
+            
           rm -f "$RUNNER_TEMP/release.jks"
           echo "✅ AAB signed successfully"
 
