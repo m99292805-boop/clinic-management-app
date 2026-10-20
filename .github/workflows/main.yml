@@ -22,7 +22,7 @@ jobs:
   build:
     name: 🔨 Build Release AAB
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
 
     steps:
       - name: 📥 Checkout
@@ -51,6 +51,15 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
+      - name: 🗄️ Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
       - name: 🤖 Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -75,6 +84,7 @@ jobs:
           cd "$PROJECT_DIR"
           [ -d "$ANDROID_DIR" ] || npx cap add android
           npx cap sync android
+          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError" >> "$ANDROID_DIR/gradle.properties"
 
       - name: 🔐 chmod gradlew
         run: chmod +x "$ANDROID_DIR/gradlew"
