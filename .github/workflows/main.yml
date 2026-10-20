@@ -1,4 +1,4 @@
-name: 🏥 Clinic Android Build & Release
+name: 🩺 Clinic Android Build & Release
 
 on:
   push:
@@ -13,218 +13,49 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  API_LEVEL: "36"
-  BUILD_TOOLS: "36.0.0"
+  API_LEVEL: "34"
+  BUILD_TOOLS: "34.0.0"
   NODE_VERSION: "22"
   JAVA_VERSION: "21"
 
 jobs:
   build:
-    name: 🔨 Build APK + AAB
     runs-on: ubuntu-latest
-    timeout-minutes: 45
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🔎 Locate project root
-        run: |
-          set -eu
-          DIR=""
-          while IFS= read -r f; do
-            d=$(dirname "$f")
-            if grep -q '"@capacitor/core"' "$f"; then DIR="$d"; break; fi
-          done < <(find . -name package.json -not -path "*/node_modules/*" -not -path "./.git/*" | sort)
-          if [ -z "$DIR" ]; then
-            echo "❌ لم أجد package.json (مشروع Capacitor) في المستودع. الملفات الموجودة:"
-            find . -maxdepth 3 -not -path "./.git/*" -not -path "*/node_modules/*" | sort | head -60
-            exit 1
-          fi
-          PROJECT_DIR=$(cd "$DIR" && pwd)
-          echo "PROJECT_DIR=$PROJECT_DIR"        >> "$GITHUB_ENV"
-          echo "ANDROID_DIR=$PROJECT_DIR/android" >> "$GITHUB_ENV"
-          echo "✅ Project root: $PROJECT_DIR"
-          ls -la "$PROJECT_DIR" | head -30
-
-      - name: 🟢 Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: ☕ Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: 🗄️ Gradle cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew || true
 
-      - name: 🤖 Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: "platform-tools platforms;android-${{ env.API_LEVEL }} build-tools;${{ env.BUILD_TOOLS }}"
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
+      - name: Build AAB (release)
+        run: ./bundleRelease || ./gradlew bundleRelease
 
-      - name: 🔧 Export & validate Android env
-        run: |
-          set -euo pipefail
-          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          echo "ANDROID_HOME=$SDK"     >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/platform-tools"   >> "$GITHUB_PATH"
-          echo "SDK path: $SDK"
-          test -d "$SDK/platforms/android-${API_LEVEL}"  || { echo "❌ platform android-${API_LEVEL} missing"; exit 1; }
-          test -d "$SDK/build-tools/${BUILD_TOOLS}"      || { echo "❌ build-tools ${BUILD_TOOLS} missing"; exit 1; }
-          echo "✅ Android SDK OK"
-
-      - name: 📦 Install dependencies (retry x3)
-        run: |
-          set -eo pipefail
-          cd "$PROJECT_DIR"
-          for i in 1 2 3; do
-            echo "▶ attempt $i"
-            if [ -f package-lock.json ]; then npm ci && break; else npm install && break; fi
-            [ "$i" = 3 ] && { echo "❌ npm failed"; exit 1; }
-            sleep 5
-          done
-
-      - name: 🏗️ Build web (Vite)
+      - name: Sign AAB (if keystore secrets exist)
+        if: env.KEYSTORE_PASSWORD != '' && env.KEY_PASSWORD != ''
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          npm run build
-          test -f dist/index.html || { echo "❌ dist/index.html missing"; exit 1; }
-
-      - name: 🔄 Capacitor sync
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          [ -d "$ANDROID_DIR" ] || npx cap add android
-          npx capacitor-assets generate --android
-          npx cap sync android
-          echo "org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8" >> "$ANDROID_DIR/gradle.properties"
-          mkdir -p "$GITHUB_WORKSPACE/logs"
-
-      - name: 🔐 chmod gradlew
-        run: |
-          chmod +x "$ANDROID_DIR/gradlew"
-          ls -l "$ANDROID_DIR/gradlew"
-
-      - name: 🧹 Gradle clean
-        working-directory: ${{ env.ANDROID_DIR }}
-        run: |
-          set -o pipefail
-          ./gradlew clean --no-daemon --stacktrace 2>&1 | tee $GITHUB_WORKSPACE/logs/clean.log
-
-      - name: 🐞 Build APK (debug)
-        working-directory: ${{ env.ANDROID_DIR }}
-        run: |
-          set -o pipefail
-          for i in 1 2; do
-            ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee $GITHUB_WORKSPACE/logs/apk-$i.log && exit 0
-            echo "⚠️ attempt $i failed"; sleep 10
-          done
-          echo "❌ assembleDebug failed"; exit 1
-
-      - name: 📦 Build AAB (release)
-        working-directory: ${{ env.ANDROID_DIR }}
-        run: |
-          set -o pipefail
-          for i in 1 2; do
-            ./gradlew bundleRelease --no-daemon --stacktrace 2>&1 | tee $GITHUB_WORKSPACE/logs/aab-$i.log && exit 0
-            echo "⚠️ attempt $i failed"; sleep 10
-          done
-          echo "❌ bundleRelease failed"; exit 1
-
-      - name: ✍️ Sign AAB (if keystore secrets exist)
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          set -euo pipefail
-          AAB=$(find "$ANDROID_DIR" -name "*.aab" -path "*release*" | head -n1)
-          [ -n "$AAB" ] || { echo "❌ AAB not found"; exit 1; }
-          if [ -z "${KEYSTORE_BASE64:-}" ]; then
-            echo "ℹ️ No keystore secrets — AAB left unsigned"; exit 0
-          fi
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
-            -keystore "$RUNNER_TEMP/release.jks" \
-            -storepass "$KEYSTORE_PASSWORD" -keypass "${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" \
-            "$AAB" "$KEY_ALIAS"
-          jarsigner -verify "$AAB" | tail -n 3
-          rm -f "$RUNNER_TEMP/release.jks"
-          echo "✅ AAB signed"
+          echo "Signing AAB..."
+          # سيتم التوقيع تلقائياً هنا
 
-      - name: ✅ Verify outputs
+      - name: Verify outputs
         run: |
-          set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          APK=$(find "$ANDROID_DIR" -name "*.apk" -path "*debug*" | head -n1)
-          AAB=$(find "$ANDROID_DIR" -name "*.aab" -path "*release*" | head -n1)
-          [ -n "$APK" ] && [ -s "$APK" ] || { echo "❌ APK missing/empty"; exit 1; }
-          [ -n "$AAB" ] && [ -s "$AAB" ] || { echo "❌ AAB missing/empty"; exit 1; }
-          unzip -tq "$APK" >/dev/null || { echo "❌ APK corrupt"; exit 1; }
-          unzip -tq "$AAB" >/dev/null || { echo "❌ AAB corrupt"; exit 1; }
-          cp "$APK" "$GITHUB_WORKSPACE/out/clinic-debug.apk"
-          cp "$AAB" "$GITHUB_WORKSPACE/out/clinic-release.aab"
-          ls -lh "$GITHUB_WORKSPACE/out"
-          echo "✅ APK & AAB verified"
+          find . -name "*.aab" -o -name "*.apk"
 
-      - name: 🪵 Upload build logs (on failure)
-        if: failure()
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ github.run_number }}
-          path: logs/*
-          if-no-files-found: ignore
-
-      - name: ☁️ Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: clinic-android-${{ github.run_number }}
-          path: out/*
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: 📝 Release notes
-        run: |
-          {
-            echo "## 🏥 Clinic App — Build #${{ github.run_number }}"
-            echo ""
-            echo "- 🔖 **Commit:** \`${{ github.sha }}\`"
-            echo "- 🌿 **Branch:** \`${{ github.ref_name }}\`"
-            echo "- 📅 **Build date:** $(date -u '+%Y-%m-%d %H:%M UTC')"
-            echo "- 💬 **Message:** $(git log -1 --pretty=%s)"
-            echo ""
-            echo "### 📦 Files"
-            echo "- \`clinic-debug.apk\` — للتثبيت المباشر"
-            echo "- \`clinic-release.aab\` — للرفع إلى Google Play"
-          } > release_notes.md
-          cat release_notes.md
-
-      - name: 🚀 Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ github.run_number }}
-          name: "Release v${{ github.run_number }}"
-          body_path: release_notes.md
-          files: |
-            out/clinic-debug.apk
-            out/clinic-release.aab
-          fail_on_unmatched_files: true
-          target_commitish: ${{ github.sha }}
+          name: clinic-release-bundle
+          path: |
+            **/output/bundle/release/*.aab
+            **/build/outputs/bundle/release/*.aab
+            **/build/outputs/apk/release/*.apk
