@@ -83,25 +83,24 @@ jobs:
         working-directory: ${{ env.ANDROID_DIR }}
         run: ./gradlew bundleRelease --no-daemon -x lint
 
-      - name: ✍️ Generate Keystore & Sign AAB Automatically
+      - name: ✍️ Generate Keystore & Sign AAB Properly
         working-directory: ${{ env.ANDROID_DIR }}
         run: |
           set -euo pipefail
           AAB=$(find . -name "*.aab" -path "*release*" | head -n1)
           
-          # إنشاء شهادة توقيع آمنة تلقائياً للتسليم الفوري
+          # إنشاء الشهادة بالاسم والصيغة الصحيحة تماماً دون الاعتماد على Base64 المعطوب
           keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -alias clinicapp -passin pass:clinicpassword -passout pass:clinicpassword \
             -dname "CN=Basil Al-Kanj, OU=Clinic App, O=Alking, L=Khan Sheikhoun, ST=Idlib, C=SY"
 
-          # توقيع الملف مباشرة
+          # توقيع الملف بنجاح
           jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
             -keystore release.jks \
             -storepass clinicpassword -keypass clinicpassword \
             "$AAB" clinicapp
 
-          rm -f release.jks
-          echo "✅ AAB signed successfully and automatically"
+          echo "✅ AAB signed successfully"
 
       - name: ☁️ Upload AAB Artifact
         uses: actions/upload-artifact@v4
