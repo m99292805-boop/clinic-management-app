@@ -83,24 +83,34 @@ jobs:
         working-directory: ${{ env.ANDROID_DIR }}
         run: ./gradlew bundleRelease --no-daemon -x lint
 
-      - name: ✍️ Generate Keystore & Sign AAB Properly
-        working-directory: ${{ env.ANDROID_DIR }}
+      - name: ✍️ Sign AAB with Real Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          AAB=$(find . -name "*.aab" -path "*release*" | head -n1)
+          AAB=$(find "$ANDROID_DIR" -name "*.aab" -path "*release*" | head -n1)
+          [ -n "$AAB" ] || { echo "❌ AAB not found"; exit 1; }
           
-          # إنشاء الشهادة بالاسم والصيغة الصحيحة تماماً دون الاعتماد على Base64 المعطوب
-          keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias clinicapp -passin pass:clinicpassword -passout pass:clinicpassword \
-            -dname "CN=Basil Al-Kanj, OU=Clinic App, O=Alking, L=Khan Sheikhoun, ST=Idlib, C=SY"
-
-          # توقيع الملف بنجاح
+          # فك تشفير شهادتك الأصلية الحقيقية بدقة متناهية باستخدام بايثون
+          python3 -c "
+          import os, base64
+          data = os.environ['KEYSTORE_BASE64'].strip().encode('utf-8')
+          with open('$RUNNER_TEMP/release.jks', 'wb') as f:
+              f.write(base64.b64decode(data))
+          "
+          
+          # توقيع الملف باستخدام شهادتك الحقيقية وبياناتك الصحيحة
           jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
-            -keystore release.jks \
-            -storepass clinicpassword -keypass clinicpassword \
-            "$AAB" clinicapp
-
-          echo "✅ AAB signed successfully"
+            -keystore "$RUNNER_TEMP/release.jks" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" \
+            "$AAB" "${KEY_ALIAS:-clinicapp}"
+            
+          rm -f "$RUNNER_TEMP/release.jks"
+          echo "✅ AAB signed successfully with your original keystore!"
 
       - name: ☁️ Upload AAB Artifact
         uses: actions/upload-artifact@v4
