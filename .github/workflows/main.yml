@@ -17,7 +17,6 @@ env:
   BUILD_TOOLS: "34.0.0"
   NODE_VERSION: "22"
   JAVA_VERSION: "21"
-  ORG_GRADLE_PROJECT_jvmargs: "-Xmx6g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g"
 
 jobs:
   build:
@@ -76,13 +75,14 @@ jobs:
           cd "$PROJECT_DIR"
           [ -d "$ANDROID_DIR" ] || npx cap add android
           npx cap sync android
+          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError" >> "$ANDROID_DIR/gradle.properties"
 
       - name: 🔐 chmod gradlew
         run: chmod +x "$ANDROID_DIR/gradlew"
 
       - name: 📦 Build AAB (release)
         working-directory: ${{ env.ANDROID_DIR }}
-        run: ./gradlew bundleRelease --parallel --no-daemon -x lint
+        run: ./gradlew bundleRelease --no-daemon -x lint
 
       - name: ✍️ Sign AAB
         env:
