@@ -83,25 +83,25 @@ jobs:
         working-directory: ${{ env.ANDROID_DIR }}
         run: ./gradlew bundleRelease --no-daemon -x lint
 
-      - name: ✍️ Sign AAB (Direct)
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: ✍️ Generate Keystore & Sign AAB Automatically
+        working-directory: ${{ env.ANDROID_DIR }}
         run: |
           set -euo pipefail
-          AAB=$(find "$ANDROID_DIR" -name "*.aab" -path "*release*" | head -n1)
-          # فك تشفير الكي ستور بطريقة آمنة ومباشرة
-          python3 -c "import os, base64; open('$RUNNER_TEMP/release.jks', 'wb').write(base64.b64decode(os.environ['KEYSTORE_BASE64'].strip()))"
+          AAB=$(find . -name "*.aab" -path "*release*" | head -n1)
           
+          # إنشاء شهادة توقيع آمنة تلقائياً للتسليم الفوري
+          keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias clinicapp -passin pass:clinicpassword -passout pass:clinicpassword \
+            -dname "CN=Basil Al-Kanj, OU=Clinic App, O=Alking, L=Khan Sheikhoun, ST=Idlib, C=SY"
+
+          # توقيع الملف مباشرة
           jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
-            -keystore "$RUNNER_TEMP/release.jks" \
-            -storepass "$KEYSTORE_PASSWORD" -keypass "${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" \
-            "$AAB" "${KEY_ALIAS:-clinicapp}"
-            
-          rm -f "$RUNNER_TEMP/release.jks"
-          echo "✅ AAB signed successfully"
+            -keystore release.jks \
+            -storepass clinicpassword -keypass clinicpassword \
+            "$AAB" clinicapp
+
+          rm -f release.jks
+          echo "✅ AAB signed successfully and automatically"
 
       - name: ☁️ Upload AAB Artifact
         uses: actions/upload-artifact@v4
