@@ -72,7 +72,8 @@ jobs:
       - name: ✍️ Sign AAB
         working-directory: ${{ env.ANDROID_DIR }}
         env:
-          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_B64_1: ${{ secrets.ANDROID_KEYSTORE_B64_1 }}
+          KS_B64_2: ${{ secrets.ANDROID_KEYSTORE_B64_2 }}
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -80,8 +81,9 @@ jobs:
           set -euo pipefail
           AAB=app/build/outputs/bundle/release/app-release.aab
           [ -f "$AAB" ] || { echo "AAB not found"; exit 1; }
-          echo "secret length: ${#KS_B64}"
-          printf '%s' "$KS_B64" | tr -d '[:space:]' | base64 -d > release.jks
+          echo "part1 length: ${#KS_B64_1}"
+          echo "part2 length: ${#KS_B64_2}"
+          printf '%s%s' "$KS_B64_1" "$KS_B64_2" | tr -d '[:space:]' | base64 -d > release.jks
           jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
             -keystore release.jks -storepass "$KS_PASS" -keypass "$KEY_PASS" \
             "$AAB" "$KEY_ALIAS"
