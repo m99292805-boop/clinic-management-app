@@ -1,63 +1,42 @@
 name: 🏥 Clinic Android Build & Release
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, master]
-  workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: android-build-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  API_LEVEL: "34"
-  BUILD_TOOLS: "34.0.0"
-  NODE_VERSION: "22"
-  JAVA_VERSION: "21"
+  contents: read
 
 jobs:
   build:
-    name: 🔨 Build Release AAB
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
 
     steps:
-      - name: 📥 Checkout
+      - name: ⬇️ Checkout
         uses: actions/checkout@v4
-
-      - name: 🔎 Locate project root
-        run: |
-          set -eu
-          DIR=""
-          while IFS= read -r f; do
-            d=$(dirname "$f")
-            if grep -q '"@capacitor/core"' "$f"; then DIR="$d"; break; fi
-          done < <(find . -name package.json -not -path "*/node_modules/*" -not -path "./.git/*" | sort)
-          PROJECT_DIR=$(cd "$DIR" && pwd)
-          echo "PROJECT_DIR=$PROJECT_DIR"        >> "$GITHUB_ENV"
-          echo "ANDROID_DIR=$PROJECT_DIR/android" >> "$GITHUB_ENV"
 
       - name: 🟢 Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 22
 
       - name: ☕ Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
+          java-version: 21
 
-      - name: 🤖 Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: "platform-tools platforms;android-${{ env.API_LEVEL }} build-tools;${{ env.BUILD_TOOLS }}"
-          accept-android-sdk-licenses: true
+      - name: 📍 Detect project folder
+        run: |
+          CFG=$(find . -maxdepth 3 -name "capacitor.config.*" -not -path "*/node_modules/*" | head -n1)
+          [ -n "$CFG" ] || { echo "capacitor config not found"; exit 1; }
+          P=$(cd "$(dirname "$CFG")" && pwd)
+          echo "PROJECT_DIR=$P" >> "$GITHUB_ENV"
+          echo "ANDROID_DIR=$P/android" >> "$GITHUB_ENV"
 
-      - name: 📦 Install dependencies
+      - name: 📥 Install dependencies
         run: |
           cd "$PROJECT_DIR"
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
@@ -76,6 +55,13 @@ jobs:
           [ -d "$ANDROID_DIR" ] || npx cap add android
           npx cap sync android
 
+      - name: 🛡️ Disable backup
+        run: |
+          F="$ANDROID_DIR/app/src/main/AndroidManifest.xml"
+          [ -f "$F" ] || { echo "Manifest not found"; exit 1; }
+          sed -i 's/android:allowBackup="true"/android:allowBackup="false"/' "$F"
+          grep -q 'android:allowBackup="false"' "$F"
+
       - name: 🔐 chmod gradlew
         run: chmod +x "$ANDROID_DIR/gradlew"
 
@@ -83,31 +69,27 @@ jobs:
         working-directory: ${{ env.ANDROID_DIR }}
         run: ./gradlew bundleRelease --no-daemon -x lint
 
-      - name: ✍️ Auto Generate Key & Sign AAB
+      - name: ✍️ Sign AAB
         working-directory: ${{ env.ANDROID_DIR }}
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          AAB=$(find . -name "*.aab" -path "*release*" | head -n1)
-          [ -n "$AAB" ] || { echo "❌ AAB not found"; exit 1; }
-          
-          # توليد شهادة توقيع صحيحة ونظيفة بالكامل آلياً
-          keytool -genkeypair -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias clinicapp -storepass clinicpassword -keypass clinicpassword \
-            -dname "CN=Basil Al-Kanj, OU=Clinic App, O=Alking, L=Khan Sheikhoun, ST=Idlib, C=SY"
-
-          # توقيع ملف الـ AAB مباشرة
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          [ -f "$AAB" ] || { echo "AAB not found"; exit 1; }
+          echo "$KS_B64" | base64 -d > release.jks
           jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
-            -keystore release.jks \
-            -storepass clinicpassword -keypass clinicpassword \
-            "$AAB" clinicapp
-
+            -keystore release.jks -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+            "$AAB" "$KEY_ALIAS"
+          jarsigner -verify "$AAB"
           rm -f release.jks
-          echo "✅ AAB signed successfully with auto-generated key!"
 
       - name: ☁️ Upload AAB Artifact
         uses: actions/upload-artifact@v4
         with:
           name: clinic-release-aab
-          path: |
-            **/*.aab
+          path: ${{ env.ANDROID_DIR }}/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
