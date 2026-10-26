@@ -41,19 +41,39 @@ jobs:
           cd "$PROJECT_DIR"
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - name: 🏗️ Build web (Vite)
+      # نسخة Google Play: بدون أي شاشة دفع داخل التطبيق (VITE_PLAY_BUILD)
+      - name: 🏗️ Build web (Vite, Play mode)
         env:
+          VITE_PLAY_BUILD: "true"
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           npm run build
+          test -f dist/index.html || { echo "dist/index.html missing"; exit 1; }
+          rm -f dist/shamcash-qr.jpg
 
       - name: 🔄 Capacitor sync
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           [ -d "$ANDROID_DIR" ] || npx cap add android
+          # أيقونة التطبيق + شاشة البداية من مجلد resources
+          npx capacitor-assets generate --android
           npx cap sync android
+          if [ -f "$ANDROID_DIR/app/src/main/assets/public/shamcash-qr.jpg" ]; then
+            echo "payment QR still in Play build"; exit 1
+          fi
+
+      - name: 🔢 Set app version (must increase on Google Play)
+        run: |
+          set -euo pipefail
+          G="$ANDROID_DIR/app/build.gradle"
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/" "$G"
+          sed -i -E "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" "$G"
+          grep -q "versionCode ${{ github.run_number }}" "$G" || { echo "versionCode was not set"; cat "$G"; exit 1; }
+          grep -nE "versionCode|versionName" "$G"
 
       - name: 🛡️ Disable backup
         run: |
