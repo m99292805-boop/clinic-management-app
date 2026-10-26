@@ -1,0 +1,76 @@
+:root {
+  --bg-cream: #f7f3e9;
+  --card-white: #ffffff;
+  --green-dark: #1f4b3f;
+  --green-mid: #2f6b57;
+  --green-light: #e7f0ea;
+  --green-pale: #f0f7f3;
+  --text-main: #2a2a26;
+  --text-sub: #6b6b62;
+  --border-soft: #e7e2d3;
+  --amber: #c98a3b;
+  --amber-bg: #fbf2e4;
+  --red: #b4483f;
+  --red-bg: #fbedeb;
+  --radius-card: 18px;
+  --radius-btn: 12px;
+  --shadow-card: 0 2px 14px rgba(31, 75, 63, 0.06);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg-cream);
+  font-family: 'Tajawal', 'Cairo', sans-serif;
+  color: var(--text-main);
+}
+body.lang-en {
+  font-family: 'Cairo', sans-serif;
+}
+::selection {
+  background: var(--green-light);
+}
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border-soft);
+  border-radius: 10px;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-in {
+  animation: fadeIn 0.25s ease;
+}
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.pop-in {
+  animation: popIn 0.18s ease;
+}
